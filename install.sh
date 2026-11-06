@@ -29,6 +29,20 @@ rm -rf "$TARGET_APP"
 ditto "$BUILT_APP" "$TARGET_APP"
 xattr -dr com.apple.quarantine "$TARGET_APP" 2>/dev/null || true
 
+# The build only gets a partial ad-hoc "linker" signature, so macOS can't match
+# permission grants (Microphone, Accessibility) to the app. Re-sign the whole bundle
+# with a real identity. A stable certificate keeps grants across rebuilds.
+# Override with SIGN_IDENTITY="..." ; falls back to ad-hoc ("-") if none is found.
+SIGN_IDENTITY="${SIGN_IDENTITY:-$(security find-identity -v -p codesigning \
+    | awk -F'"' '/Apple Development|Developer ID Application/ {print $2; exit}')}"
+SIGN_IDENTITY="${SIGN_IDENTITY:--}"
+echo "Signing with: $SIGN_IDENTITY"
+codesign --force --deep --timestamp=none --sign "$SIGN_IDENTITY" \
+    --identifier "$BUNDLE_ID" \
+    --entitlements OpenSuperWhisper/OpenSuperWhisper.entitlements \
+    "$TARGET_APP"
+codesign --verify --deep --strict "$TARGET_APP"
+
 echo "Launching..."
 open "$TARGET_APP"
 echo "Installed $(git rev-parse --short HEAD) ($(git rev-parse --abbrev-ref HEAD))."
