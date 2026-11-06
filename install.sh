@@ -37,7 +37,15 @@ SIGN_IDENTITY="${SIGN_IDENTITY:-$(security find-identity -v -p codesigning \
     | awk -F'"' '/Apple Development|Developer ID Application/ {print $2; exit}')}"
 SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 echo "Signing with: $SIGN_IDENTITY"
-codesign --force --deep --timestamp=none --sign "$SIGN_IDENTITY" \
+# Sign nested code first, without the app's entitlements.
+find "$TARGET_APP/Contents" \( -name "*.dylib" -o -name "*.framework" \) -not -path "*/Resources/*" \
+    -print0 | while IFS= read -r -d '' nested; do
+    codesign --force --timestamp=none --options runtime --sign "$SIGN_IDENTITY" "$nested"
+done
+# Then the app itself, with the hardened runtime: blocks DYLD_INSERT_LIBRARIES and
+# unsigned dylibs, so other code can't borrow the app's Microphone/Accessibility grants.
+# The entitlements file has no get-task-allow, so the Debug build's one is dropped.
+codesign --force --timestamp=none --options runtime --sign "$SIGN_IDENTITY" \
     --identifier "$BUNDLE_ID" \
     --entitlements OpenSuperWhisper/OpenSuperWhisper.entitlements \
     "$TARGET_APP"
